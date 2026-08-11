@@ -29,3 +29,7 @@ req_*.json
 empty_*.json
 prof.json
 seed_*.json
+
+# 本地 tsc 编译产物（不应入库，且会 shadow 真实 .ts 源）
+server/*.js
+server/*.d.ts
