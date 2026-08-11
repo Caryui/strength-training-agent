@@ -39,6 +39,7 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.6.2",
     "typescript": "^5.3.2",
-    "vite": "^5.0.10"
+    "vite": "^5.0.10",
+    "vite-plugin-singlefile": "^2.3.3"
   }
 }
