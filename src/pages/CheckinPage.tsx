@@ -191,6 +191,47 @@ function DirectionTag({ item }: { item: AdviceItem }) {
   );
 }
 
+/** 移动端历史记录卡片（sm 以下显示） */
+function CheckinCard({ c, onDelete }: { c: CheckinEntry; onDelete: (id: string) => void }) {
+  const rpeColor =
+    c.targetRpe && c.rpe - c.targetRpe >= 1
+      ? 'var(--td-error-color)'
+      : c.targetRpe && c.rpe - c.targetRpe <= -1
+        ? 'var(--td-success-color)'
+        : 'inherit';
+  return (
+    <div
+      className="rounded-lg p-3 flex items-start justify-between gap-2"
+      style={{ backgroundColor: 'var(--td-bg-color-container-hover)', border: '1px solid var(--td-component-stroke)' }}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-medium truncate" style={{ color: 'var(--td-text-color-primary)' }}>
+            {c.lift}
+          </span>
+          <span className="text-xs" style={{ color: 'var(--td-text-color-placeholder)' }}>
+            {c.date}{c.dateInferred ? ' *' : ''}
+          </span>
+        </div>
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs" style={{ color: 'var(--td-text-color-secondary)' }}>
+          <span>{c.cycle || '—'} · {c.day || '—'}</span>
+          <span>{c.sets || '—'}×{c.reps}</span>
+          <span>{c.weight}kg</span>
+          {c.rpe ? <span style={{ color: rpeColor }}>RPE {c.rpe}</span> : null}
+        </div>
+        {(c.setDistribution || c.techniqueNote || c.note) && (
+          <div className="mt-1 text-xs truncate" style={{ color: 'var(--td-text-color-placeholder)' }} title={c.setDistribution || c.techniqueNote || c.note}>
+            {c.setDistribution ? `逐组 ${c.setDistribution}　` : ''}{c.techniqueNote || c.note}
+          </div>
+        )}
+      </div>
+      <Popconfirm content="删除这条记录？" onConfirm={() => onDelete(c.id)}>
+        <Button variant="text" size="small" shape="circle" icon={<Trash2 size={13} />} />
+      </Popconfirm>
+    </div>
+  );
+}
+
 // ============================================================================
 // 主页面
 // ============================================================================
@@ -319,7 +360,7 @@ export function CheckinPage({
   }, [liftOptions, trendLift]);
 
   const recent = useMemo(
-    () => checkins.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 40),
+    () => checkins.slice().sort((a, b) => b.date.localeCompare(a.date)),
     [checkins]
   );
 
@@ -340,9 +381,9 @@ export function CheckinPage({
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="max-w-5xl mx-auto p-5 space-y-4">
+      <div className="max-w-5xl mx-auto p-3 sm:p-5 space-y-4">
         {/* 概览 */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: '训练场次', value: stats.sessions },
             { label: '量化记录', value: stats.records },
@@ -383,7 +424,7 @@ export function CheckinPage({
             </div>
           }
         >
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <div className="text-xs mb-1.5" style={{ color: 'var(--td-text-color-secondary)' }}>阶段</div>
               <Select
@@ -448,7 +489,7 @@ export function CheckinPage({
           icon={<Activity size={16} />}
           hint="实测 RPE 高于目标 ≥1 档自动减重 5%；低于目标 ≥1 档自动加重 2.5%；否则维持"
         >
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {advice.map(a => (
               <div
                 key={a.lift}
@@ -570,40 +611,40 @@ export function CheckinPage({
 
                     {/* 打卡输入 */}
                     {d.enabled && (
-                      <div className="grid grid-cols-12 gap-2">
-                        <div className="col-span-1">
+                      <div className="grid grid-cols-2 sm:grid-cols-12 gap-2">
+                        <div className="col-span-1 sm:col-span-1">
                           <InputNumber
                             value={d.sets} onChange={(v) => setDraft(i, { sets: Number(v) || undefined })}
                             min={1} max={20} theme="column" placeholder="组"
                           />
                         </div>
-                        <div className="col-span-1">
+                        <div className="col-span-1 sm:col-span-1">
                           <InputNumber
                             value={d.reps} onChange={(v) => setDraft(i, { reps: Number(v) || undefined })}
                             min={1} max={50} theme="column" placeholder="次"
                           />
                         </div>
-                        <div className="col-span-2">
+                        <div className="col-span-1 sm:col-span-2">
                           <InputNumber
                             value={d.weight} onChange={(v) => setDraft(i, { weight: Number(v) ?? undefined })}
                             min={0} max={500} step={2.5} theme="column"
                             placeholder={planned != null ? `${planned}kg` : 'kg'}
                           />
                         </div>
-                        <div className="col-span-2">
+                        <div className="col-span-1 sm:col-span-2">
                           <InputNumber
                             value={d.rpe} onChange={(v) => setDraft(i, { rpe: Number(v) || undefined })}
                             min={1} max={10} step={0.5} theme="column"
                             placeholder={`RPE ${row.targetRPE}`}
                           />
                         </div>
-                        <div className="col-span-3">
+                        <div className="col-span-2 sm:col-span-3">
                           <Input
                             value={d.dist} onChange={(v) => setDraft(i, { dist: (v as string) || '' })}
                             placeholder="逐组分布 85-87.5-90"
                           />
                         </div>
-                        <div className="col-span-3">
+                        <div className="col-span-2 sm:col-span-3">
                           <Input
                             value={d.tech} onChange={(v) => setDraft(i, { tech: (v as string) || '' })}
                             placeholder="技术备注"
@@ -617,7 +658,7 @@ export function CheckinPage({
 
               {/* 全局身体指标 */}
               <div
-                className="rounded-lg p-3 grid grid-cols-3 gap-3"
+                className="rounded-lg p-3 grid grid-cols-1 sm:grid-cols-3 gap-3"
                 style={{ backgroundColor: 'var(--td-bg-color-page)', border: '1px dashed var(--td-component-stroke)' }}
               >
                 <div>
@@ -657,66 +698,80 @@ export function CheckinPage({
 
         {/* 历史记录 */}
         <SectionCard
-          title={`历史打卡记录（${checkins.length} 条，服务端持久化）`}
+          title={`历史打卡记录（${checkins.length} 条，本地持久化）`}
           icon={<ClipboardList size={16} />}
+          extra={
+            <span className="text-xs sm:hidden" style={{ color: 'var(--td-text-color-placeholder)' }}>
+              卡片视图
+            </span>
+          }
         >
           {recent.length === 0 ? (
             <div className="py-8 text-center text-sm" style={{ color: 'var(--td-text-color-placeholder)' }}>
               还没有记录。点击右上角「导入 Excel 历史」可回填三个周期的真实数据。
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs" style={{ color: 'var(--td-text-color-secondary)' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--td-component-stroke)' }}>
-                    {['日期', '周期', '日', '动作', '组×次', '重量', 'RPE', '逐组分布', '技术备注', ''].map(h => (
-                      <th key={h} className="text-left py-2 px-2 font-medium whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {recent.map(c => (
-                    <tr key={c.id} style={{ borderBottom: '1px solid var(--td-component-stroke)' }}>
-                      <td className="py-1.5 px-2 whitespace-nowrap">
-                        {c.date}
-                        {c.dateInferred && (
-                          <Tooltip content="表格未标注日期，依训练节奏推断">
-                            <span style={{ color: 'var(--td-warning-color)' }}> *</span>
-                          </Tooltip>
-                        )}
-                      </td>
-                      <td className="py-1.5 px-2 whitespace-nowrap">{c.cycle || '—'}</td>
-                      <td className="py-1.5 px-2 whitespace-nowrap">{c.day || '—'}</td>
-                      <td className="py-1.5 px-2 whitespace-nowrap" style={{ color: 'var(--td-text-color-primary)' }}>{c.lift}</td>
-                      <td className="py-1.5 px-2 whitespace-nowrap">{c.sets || '—'}×{c.reps}</td>
-                      <td className="py-1.5 px-2 whitespace-nowrap">{c.weight}kg</td>
-                      <td className="py-1.5 px-2 whitespace-nowrap">
-                        {c.rpe ? (
-                          <span style={{
-                            color: c.targetRpe && c.rpe - c.targetRpe >= 1
-                              ? 'var(--td-error-color)'
-                              : c.targetRpe && c.rpe - c.targetRpe <= -1
-                                ? 'var(--td-success-color)'
-                                : 'inherit',
-                          }}>
-                            {c.rpe}
-                          </span>
-                        ) : '—'}
-                      </td>
-                      <td className="py-1.5 px-2 max-w-[200px] truncate" title={c.setDistribution}>{c.setDistribution || '—'}</td>
-                      <td className="py-1.5 px-2 max-w-[200px] truncate" title={c.techniqueNote || c.note}>
-                        {c.techniqueNote || c.note || '—'}
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <Popconfirm content="删除这条记录？" onConfirm={() => onDeleteCheckin(c.id)}>
-                          <Button variant="text" size="small" shape="circle" icon={<Trash2 size={13} />} />
-                        </Popconfirm>
-                      </td>
+            <>
+              {/* 桌面：表格（横向滚动 + 纵向限高，全部记录可见） */}
+              <div className="hidden sm:block overflow-auto" style={{ maxHeight: '60vh' }}>
+                <table className="w-full text-xs" style={{ color: 'var(--td-text-color-secondary)' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--td-component-stroke)' }}>
+                      {['日期', '周期', '日', '动作', '组×次', '重量', 'RPE', '逐组分布', '技术备注', ''].map(h => (
+                        <th key={h} className="text-left py-2 px-2 font-medium whitespace-nowrap">{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {recent.map(c => (
+                      <tr key={c.id} style={{ borderBottom: '1px solid var(--td-component-stroke)' }}>
+                        <td className="py-1.5 px-2 whitespace-nowrap">
+                          {c.date}
+                          {c.dateInferred && (
+                            <Tooltip content="表格未标注日期，依训练节奏推断">
+                              <span style={{ color: 'var(--td-warning-color)' }}> *</span>
+                            </Tooltip>
+                          )}
+                        </td>
+                        <td className="py-1.5 px-2 whitespace-nowrap">{c.cycle || '—'}</td>
+                        <td className="py-1.5 px-2 whitespace-nowrap">{c.day || '—'}</td>
+                        <td className="py-1.5 px-2 whitespace-nowrap" style={{ color: 'var(--td-text-color-primary)' }}>{c.lift}</td>
+                        <td className="py-1.5 px-2 whitespace-nowrap">{c.sets || '—'}×{c.reps}</td>
+                        <td className="py-1.5 px-2 whitespace-nowrap">{c.weight}kg</td>
+                        <td className="py-1.5 px-2 whitespace-nowrap">
+                          {c.rpe ? (
+                            <span style={{
+                              color: c.targetRpe && c.rpe - c.targetRpe >= 1
+                                ? 'var(--td-error-color)'
+                                : c.targetRpe && c.rpe - c.targetRpe <= -1
+                                  ? 'var(--td-success-color)'
+                                  : 'inherit',
+                            }}>
+                              {c.rpe}
+                            </span>
+                          ) : '—'}
+                        </td>
+                        <td className="py-1.5 px-2 max-w-[200px] truncate" title={c.setDistribution}>{c.setDistribution || '—'}</td>
+                        <td className="py-1.5 px-2 max-w-[200px] truncate" title={c.techniqueNote || c.note}>
+                          {c.techniqueNote || c.note || '—'}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <Popconfirm content="删除这条记录？" onConfirm={() => onDeleteCheckin(c.id)}>
+                            <Button variant="text" size="small" shape="circle" icon={<Trash2 size={13} />} />
+                          </Popconfirm>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* 移动：卡片列表（全部记录） */}
+              <div className="sm:hidden space-y-2">
+                {recent.map(c => (
+                  <CheckinCard key={c.id} c={c} onDelete={onDeleteCheckin} />
+                ))}
+              </div>
+            </>
           )}
         </SectionCard>
       </div>

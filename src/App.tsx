@@ -187,22 +187,26 @@ function AppContent() {
 
   // 侧边栏事件处理
   const handleNewChat = useCallback(() => {
+    closeSidebarIfMobile();
     setCurrentSessionId(null);
     navigate('/');
-  }, [navigate, setCurrentSessionId]);
+  }, [navigate, setCurrentSessionId, closeSidebarIfMobile]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
+    closeSidebarIfMobile();
     setCurrentSessionId(sessionId);
     navigate(`/chat/${sessionId}`);
-  }, [navigate, setCurrentSessionId]);
+  }, [navigate, setCurrentSessionId, closeSidebarIfMobile]);
 
   const handleOpenSettings = useCallback(() => {
+    closeSidebarIfMobile();
     navigate('/settings');
-  }, [navigate]);
+  }, [navigate, closeSidebarIfMobile]);
 
   const handleOpenCheckin = useCallback(() => {
+    closeSidebarIfMobile();
     navigate('/checkin');
-  }, [navigate]);
+  }, [navigate, closeSidebarIfMobile]);
 
   // 把 Excel 真实数据回填进档案：四大项 1RM + TX 锚点 + 三个周期全量记录
   const handleImportSeed = useCallback(async () => {
@@ -223,11 +227,18 @@ function AppContent() {
     }
   }, [saveProfile, syncProfile, bulkImport]);
 
-  // Sidebar 状态
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Sidebar 状态：桌面默认展开；移动端默认收起（改为抽屉式遮罩）
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => (typeof window !== 'undefined' ? window.innerWidth >= 768 : true),
+  );
   
   // 权限模式状态
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
+
+  // 移动端：导航后自动收起侧边栏抽屉
+  const closeSidebarIfMobile = useCallback(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) setSidebarOpen(false);
+  }, []);
 
   // 后端连通性检测：后端未启动时生成计划/RPE 调节会失败，提前给出明确提示
   const [backendOk, setBackendOk] = useState<boolean>(true);
@@ -347,6 +358,14 @@ function AppContent() {
           />
         )}
       </main>
+
+      {/* 移动端侧边栏遮罩（仅 sm 以下显示） */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/40 sm:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
 
       {/* 个人档案弹窗 */}
       <ProfileDialog

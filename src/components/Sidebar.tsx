@@ -36,7 +36,10 @@ export function Sidebar({
 }: SidebarProps) {
   return (
     <aside 
-      className="flex flex-col flex-shrink-0 transition-all duration-300 overflow-hidden"
+      className={`flex flex-col flex-shrink-0 transition-all duration-300 overflow-hidden z-30
+        fixed inset-y-0 left-0 h-full w-[260px]
+        sm:static sm:inset-auto sm:h-auto sm:w-auto sm:translate-x-0
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
       style={{ 
         width: sidebarOpen ? 260 : 0,
         backgroundColor: 'var(--td-bg-color-container)'
