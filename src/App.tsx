@@ -185,6 +185,15 @@ function AppContent() {
     }
   }, [deleteSession, navigate]);
 
+  // 侧边栏状态：桌面默认展开；移动端默认收起（抽屉式遮罩）
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => (typeof window !== 'undefined' ? window.innerWidth >= 768 : true),
+  );
+  // 移动端：导航后自动收起侧边栏抽屉
+  const closeSidebarIfMobile = useCallback(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) setSidebarOpen(false);
+  }, []);
+
   // 侧边栏事件处理
   const handleNewChat = useCallback(() => {
     closeSidebarIfMobile();
@@ -227,18 +236,8 @@ function AppContent() {
     }
   }, [saveProfile, syncProfile, bulkImport]);
 
-  // Sidebar 状态：桌面默认展开；移动端默认收起（改为抽屉式遮罩）
-  const [sidebarOpen, setSidebarOpen] = useState(
-    () => (typeof window !== 'undefined' ? window.innerWidth >= 768 : true),
-  );
-  
   // 权限模式状态
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
-
-  // 移动端：导航后自动收起侧边栏抽屉
-  const closeSidebarIfMobile = useCallback(() => {
-    if (typeof window !== 'undefined' && window.innerWidth < 768) setSidebarOpen(false);
-  }, []);
 
   // 后端连通性检测：后端未启动时生成计划/RPE 调节会失败，提前给出明确提示
   const [backendOk, setBackendOk] = useState<boolean>(true);
