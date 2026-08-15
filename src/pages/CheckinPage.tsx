@@ -328,20 +328,29 @@ export function CheckinPage({
     if (!prescription) return;
     // 同一场训练的所有动作共享一个 sessionId，便于历史按场次聚合展示
     const sessionId = 's_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
-    // 记录「所有已启用且填了重量与次数的动作」——RPE 改为选填，未填也照常记录（不丢动作）
+    // 记录「本次处方的全部已启用动作」——只要动作被勾选（默认全勾），就必定记录；
+    // 用户没手填的字段自动回退到处方计划值（组/次/重量），从根本上杜绝
+    // 「某个动作因漏填字段而被静默丢弃、历史里看不到」的问题（如深蹲/硬拉失踪）。
     const toSave = prescription.rows
-      .map((r, i) => ({ row: r, d: drafts[i] }))
-      .filter(({ d }) => d?.enabled && d.weight != null && d.reps != null);
+      .map((r, i) => {
+        const d = drafts[i];
+        if (d && d.enabled === false) return null; // 用户明确「跳过」的动作不记
+        const sets = d?.sets != null ? d.sets! : r.sets;
+        const reps = d?.reps != null ? d.reps! : r.reps;
+        const weight = d?.weight != null ? d.weight! : (r.adjustedWeight ?? r.topWeight ?? 0);
+        const rpe = d?.rpe != null ? d.rpe! : 0;
+        return { row: r, sets, reps, weight, rpe, d };
+      })
+      .filter(Boolean) as Array<{ row: PrescriptionRow; sets: number; reps: number; weight: number; rpe: number; d?: RowDraft }>;
 
     if (toSave.length === 0) {
-      MessagePlugin.warning('请至少填写一个动作的「重量 / 次数」');
+      MessagePlugin.warning('当前处方没有可记录的动作');
       return;
     }
 
     setSaving(true);
     try {
-      const missingRpe = toSave.filter(({ d }) => d.rpe == null).length;
-      for (const { row, d } of toSave) {
+      for (const { row, sets, reps, weight, rpe, d } of toSave) {
         await onAddCheckin({
           date,
           cycle: `${prescription.phase}-W${prescription.week}`,
@@ -349,13 +358,13 @@ export function CheckinPage({
           week: prescription.week,
           day: prescription.day,
           lift: row.name.replace(/（.*?）/g, '').trim(),
-          sets: d.sets,
-          reps: d.reps!,
-          weight: d.weight!,
-          rpe: d.rpe ?? 0,
+          sets,
+          reps,
+          weight,
+          rpe,
           targetRpe: row.targetRPE,
-          setDistribution: d.dist || undefined,
-          techniqueNote: d.tech || undefined,
+          setDistribution: d?.dist || undefined,
+          techniqueNote: d?.tech || undefined,
           restingHR,
           bodyweight,
           calories,
@@ -363,9 +372,7 @@ export function CheckinPage({
           createdAt: new Date().toISOString(),
         });
       }
-      MessagePlugin.success(
-        `已打卡 ${toSave.length} 个动作${missingRpe ? `（${missingRpe} 个未填 RPE，仍已记录）` : ''}，RPE 调节已更新`,
-      );
+      MessagePlugin.success(`已打卡 ${toSave.length} 个动作（含全部训练动作），RPE 调节已更新`);
       await refresh();
     } catch (e: any) {
       MessagePlugin.error('保存失败：' + (e?.message || e));
