@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev": "node scripts/dev-clean.cjs && concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "tsx watch server/index.ts",
     "dev:client": "vite",
     "build": "vite build",
+    "build:single": "vite build && node scripts/inline-html.cjs",
     "preview": "vite preview",
     "server": "tsx server/index.ts",
     "gen:plan": "tsx genMyPlan.ts"
@@ -39,7 +40,6 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.6.2",
     "typescript": "^5.3.2",
-    "vite": "^5.0.10",
-    "vite-plugin-singlefile": "^2.3.3"
+    "vite": "^5.0.10"
   }
 }
