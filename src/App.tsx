@@ -68,6 +68,7 @@ function AppContent() {
     loading: checkinLoading,
     fetchPrescription,
     addCheckin,
+    addCheckins,
     deleteCheckin,
     bulkImport,
     syncProfile,
@@ -324,6 +325,7 @@ function AppContent() {
             loading={checkinLoading}
             onFetchPrescription={fetchPrescription}
             onAddCheckin={addCheckin}
+            onAddCheckins={addCheckins}
             onDeleteCheckin={deleteCheckin}
             onImportSeed={handleImportSeed}
           />

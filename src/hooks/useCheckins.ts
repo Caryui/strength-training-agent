@@ -133,6 +133,30 @@ export function useCheckins(profile: UserProfile) {
     [checkins, profile, query],
   );
 
+  /**
+   * 批量新增打卡记录（一次原子追加 + 单次 saveCheckins）。
+   * 关键：避免「循环调用单条 addCheckin」时，因循环期间闭包引用的 checkins 快照不刷新，
+   * 导致后一次 save 覆盖前一次、最终只剩最后一个动作（高杠蹲/硬拉等被静默吞掉）。
+   */
+  const addCheckins = useCallback(
+    async (entries: Array<Omit<CheckinEntry, 'id'>>) => {
+      setLoading(true);
+      try {
+        const withId: CheckinEntry[] = entries.map(e => ({ ...e, id: makeId() }));
+        const next = [...checkins, ...withId];
+        setCheckins(next);
+        saveCheckins(next);
+        const phase = (query.phase && query.phase !== 'auto' ? query.phase : 'auto') as PhaseKey | 'auto';
+        const adv = adviseNextSession(profile as any, next as any, phase) as AdviceItem[];
+        setAdvice(adv);
+        return { added: withId, advice: adv };
+      } finally {
+        setLoading(false);
+      }
+    },
+    [checkins, profile, query],
+  );
+
   /** 删除一条记录 */
   const deleteCheckin = useCallback(
     async (id: string) => {
@@ -190,6 +214,7 @@ export function useCheckins(profile: UserProfile) {
     fetchCheckins,
     fetchPrescription,
     addCheckin,
+    addCheckins,
     bulkImport,
     deleteCheckin,
     clearAll,

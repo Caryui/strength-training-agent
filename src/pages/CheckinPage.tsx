@@ -17,6 +17,7 @@ interface CheckinPageProps {
   loading: boolean;
   onFetchPrescription: (q: { phase?: PhaseKey | 'auto' | ''; week?: number; day?: string }) => Promise<DayPrescription | null>;
   onAddCheckin: (entry: Omit<CheckinEntry, 'id'>) => Promise<{ checkin: CheckinEntry; advice: AdviceItem[] }>;
+  onAddCheckins: (entries: Array<Omit<CheckinEntry, 'id'>>) => Promise<{ added: CheckinEntry[]; advice: AdviceItem[] }>;
   onDeleteCheckin: (id: string) => Promise<void>;
   onImportSeed: () => Promise<void>;
 }
@@ -273,6 +274,7 @@ export function CheckinPage({
   loading,
   onFetchPrescription,
   onAddCheckin,
+  onAddCheckins,
   onDeleteCheckin,
   onImportSeed,
 }: CheckinPageProps) {
@@ -360,29 +362,30 @@ export function CheckinPage({
 
     setSaving(true);
     try {
-      for (const { row, sets, reps, weight, rpe, d } of toSave) {
-        await onAddCheckin({
-          date,
-          cycle: `${prescription.phase}-W${prescription.week}`,
-          phase: prescription.phase,
-          week: prescription.week,
-          day: prescription.day,
-          lift: row.name.replace(/（.*?）/g, '').trim(),
-          sets,
-          reps,
-          weight,
-          rpe,
-          targetRpe: row.targetRPE,
-          setDistribution: d?.dist || undefined,
-          techniqueNote: d?.tech || undefined,
-          restingHR,
-          bodyweight,
-          calories,
-          sessionId,
-          createdAt: new Date().toISOString(),
-        });
-      }
-      MessagePlugin.success(`已打卡 ${toSave.length} 个动作（含全部训练动作），RPE 调节已更新`);
+      // 一次性原子批量写入：避免「循环逐条 addCheckin」时闭包快照过期、
+      // 后一次 save 覆盖前一次，导致只剩最后一个动作的覆盖 bug（高杠蹲/硬拉等被静默吞掉）。
+      const entries: Array<Omit<CheckinEntry, 'id'>> = toSave.map(({ row, sets, reps, weight, rpe, d }) => ({
+        date,
+        cycle: `${prescription.phase}-W${prescription.week}`,
+        phase: prescription.phase,
+        week: prescription.week,
+        day: prescription.day,
+        lift: row.name.replace(/（.*?）/g, '').trim(),
+        sets,
+        reps,
+        weight,
+        rpe,
+        targetRpe: row.targetRPE,
+        setDistribution: d?.dist || undefined,
+        techniqueNote: d?.tech || undefined,
+        restingHR,
+        bodyweight,
+        calories,
+        sessionId,
+        createdAt: new Date().toISOString(),
+      }));
+      await onAddCheckins(entries);
+      MessagePlugin.success(`已打卡 ${entries.length} 个动作（含全部训练动作），RPE 调节已更新`);
       await refresh();
     } catch (e: any) {
       MessagePlugin.error('保存失败：' + (e?.message || e));
