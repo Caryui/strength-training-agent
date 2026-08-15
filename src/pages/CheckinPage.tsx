@@ -671,11 +671,13 @@ export function CheckinPage({
                           <div
                             className="text-xs mt-1 px-2 py-1 rounded inline-block"
                             style={{
-                              color: row.adjustedWeight! < (row.topWeight || 0) ? 'var(--td-success-color)' : 'var(--td-error-color)',
+                              color: row.adjustedWeight != null && row.adjustedWeight < (row.topWeight || 0)
+                                ? 'var(--td-success-color)'
+                                : 'var(--td-error-color)',
                               backgroundColor: 'var(--td-bg-color-page)',
                             }}
                           >
-                            RPE 调节：{row.topWeight}kg → <b>{row.adjustedWeight}kg</b>　{row.adjustNote}
+                            自动调节（按实际重量+RPE）：{row.topWeight}kg → <b>{row.adjustedWeight}kg</b>　{row.adjustNote}
                           </div>
                         )}
                       </div>
@@ -710,6 +712,11 @@ export function CheckinPage({
                             min={0} max={500} step={2.5} theme="column"
                             placeholder={planned != null ? `${planned}kg` : 'kg'}
                           />
+                          {row.adjustedWeight != null && row.adjustedWeight !== planned && (
+                            <div className="text-[11px] mt-0.5" style={{ color: 'var(--td-brand-color)' }}>
+                              建议 {row.adjustedWeight}kg（基于上次实际：{d.weight ?? '—'}kg）
+                            </div>
+                          )}
                         </div>
                         <div className="col-span-1 sm:col-span-2">
                           <InputNumber

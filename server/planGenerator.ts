@@ -302,30 +302,63 @@ function latestLogForLift(log: PlanLogEntry[], key: LiftKey): PlanLogEntry | und
   return entries[entries.length - 1];
 }
 
-function computeRpeAdjustments(profile: PlanProfile, log: PlanLogEntry[], targetRPE: number): Record<MainLiftKey, RpeAdj> {
+function computeRpeAdjustments(
+  profile: PlanProfile,
+  log: PlanLogEntry[],
+  targetRPE: number,
+  planned?: Partial<Record<MainLiftKey, number | null>>
+): Record<MainLiftKey, RpeAdj> {
   const anchors = resolveAnchors(profile);
   const result = {} as Record<MainLiftKey, RpeAdj>;
   for (const { key } of LOG_LIFT_KEYS) {
     const entry = latestLogForLift(log, key);
     const adj: RpeAdj = { lift: key, found: false, targetRPE, factor: 1, note: '' };
-    if (entry && entry.weight && entry.reps && entry.rpe) {
+    // 实际重量 + 次数 为核心要素；RPE 选填（不填也能仅按重量调节）
+    if (entry && entry.weight && entry.reps) {
       adj.found = true;
       adj.loggedWeight = entry.weight;
       adj.loggedReps = entry.reps;
-      adj.loggedRPE = entry.rpe;
+      adj.loggedRPE = entry.rpe || undefined;
       adj.est1RM = estimate1RM(entry.weight, entry.reps);
-      const delta = entry.rpe - targetRPE;
-      if (delta >= 1) {
-        adj.factor = 0.95;
-        adj.note = `实测 RPE ${entry.rpe} 高于目标 ${targetRPE}（≥1 档），下周主项重量下调约 5%`;
-      } else if (delta <= -1) {
-        adj.factor = 1.025;
-        adj.note = `实测 RPE ${entry.rpe} 低于目标 ${targetRPE}（≥1 档），下周主项重量上调约 2.5-5%`;
-      } else {
-        adj.note = `实测 RPE ${entry.rpe} 接近目标 ${targetRPE}，维持当前负荷`;
+
+      const plannedW = planned ? (planned[key] ?? null) : null;
+      const ratio = plannedW && plannedW > 0 ? entry.weight / plannedW : null;
+
+      let factor = 1;
+      const notes: string[] = [];
+      let decidedByRpe = false;
+
+      // ① RPE 信号（安全优先，一旦判定则不再被重量信号反超）
+      if (entry.rpe) {
+        const delta = entry.rpe - targetRPE;
+        if (delta >= 1) {
+          factor = 0.95;
+          decidedByRpe = true; // RPE 偏高 → 直接下调，即便举到了计划重量也回退
+          notes.push(`实测 RPE ${entry.rpe} 高于目标 ${targetRPE}（≥1 档），主项重量下调约 5%`);
+        } else if (delta <= -1) {
+          factor = 1.05;
+          decidedByRpe = true;
+          notes.push(`实测 RPE ${entry.rpe} 低于目标 ${targetRPE}（≥1 档），主项重量上调约 5%`);
+        }
       }
-      // 建议负荷：基于实测重量 × factor（若有锚点，用锚点相位近似）
-      adj.suggestedLoad = roundTo(entry.weight * adj.factor);
+
+      // ② 实际重量 vs 计划重量 信号（仅当 RPE 未做判定时启用）
+      if (!decidedByRpe && ratio != null) {
+        if (ratio >= 1.0) {
+          factor = 1.025;
+          notes.push(`实际 ${entry.weight}kg 达到/超过计划 ${plannedW}kg，下次主项重量上调约 2.5%`);
+        } else if (ratio < 0.95) {
+          factor = 1.0;
+          notes.push(`实际 ${entry.weight}kg 低于计划 ${plannedW}kg，维持当前负荷并优先排查技术与恢复`);
+        }
+      }
+
+      if (notes.length === 0) notes.push(`实测 RPE 接近目标且重量达标，维持当前负荷继续推进`);
+
+      adj.factor = factor;
+      adj.note = notes.join('；');
+      // 建议负荷：基于实测重量 × factor
+      adj.suggestedLoad = roundTo(entry.weight * factor);
     } else {
       const a = anchors[key];
       if (a.anchor) adj.note = `暂无近期「${LIFT_CN[key]}」记录，按目标 RPE ${targetRPE} 执行（锚点 ${a.anchor}kg/${a.source}），上报 RPE 后可自动调节`;
@@ -655,13 +688,14 @@ export function listSplit() {
 export function adviseNextSession(
   profile: PlanProfile,
   log: PlanLogEntry[],
-  phaseKey?: PhaseKey | 'auto'
+  phaseKey?: PhaseKey | 'auto',
+  planned?: Partial<Record<MainLiftKey, number | null>>
 ): AdviceItem[] {
   const key: PhaseKey = phaseKey && phaseKey !== 'auto'
     ? phaseKey
     : (profile.phase && profile.phase !== 'auto' ? profile.phase : 'volume');
   const phase = PHASES[key];
-  const raw = computeRpeAdjustments(profile, log, phase.targetRPE);
+  const raw = computeRpeAdjustments(profile, log, phase.targetRPE, planned);
 
   return (['squat', 'bench', 'deadlift', 'press'] as MainLiftKey[]).map(k => {
     const a = raw[k];
@@ -755,7 +789,13 @@ export function getDayPrescription(
   const dayName = opts.day || inferNextDay(log as any);
   const day = SPLIT.find(d => d.day === dayName) || SPLIT[0];
 
-  const advice = adviseNextSession(profile, log, key);
+  // 计算每个主项本周的「计划顶组重量」，用于和实际重量比对（判断举到/超过/未达计划）
+  const plannedMap: Partial<Record<MainLiftKey, number | null>> = {};
+  for (const { key: mk } of LOG_LIFT_KEYS) {
+    plannedMap[mk] = computeMainLoad(phase, weekIndex, anchors[mk].anchor, deload).high;
+  }
+
+  const advice = adviseNextSession(profile, log, key, plannedMap);
   const adviceMap = new Map(advice.map(a => [a.lift, a]));
 
   const rows: PrescriptionRow[] = [];

@@ -23,6 +23,13 @@ interface PrescriptionQuery {
 
 const LS_KEY = 'st_checkins_v1';
 
+/** 从处方中提取每个主项的「计划顶组重量」，供调节逻辑与实际重量比对 */
+function plannedFromPrescription(p: DayPrescription | null): Partial<Record<string, number | null>> {
+  const m: Partial<Record<string, number | null>> = {};
+  if (p) for (const r of p.rows) if (r.role === 'main') m[r.lift] = r.topWeight ?? null;
+  return m;
+}
+
 function loadCheckins(): CheckinEntry[] {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -66,7 +73,7 @@ export function useCheckins(profile: UserProfile) {
       const phase = (q.phase && q.phase !== 'auto' ? q.phase : 'auto') as PhaseKey | 'auto';
       const presc = getDayPrescription(prof as any, list as any, { ...q, phase });
       setPrescription(presc);
-      setAdvice(adviseNextSession(prof as any, list as any, phase) as AdviceItem[]);
+      setAdvice(adviseNextSession(prof as any, list as any, phase, plannedFromPrescription(presc) as any) as AdviceItem[]);
     },
     [],
   );
@@ -86,7 +93,7 @@ export function useCheckins(profile: UserProfile) {
       const phase = (merged.phase && merged.phase !== 'auto' ? merged.phase : 'auto') as PhaseKey | 'auto';
       const presc = getDayPrescription(profile as any, checkins as any, { ...merged, phase });
       setPrescription(presc);
-      setAdvice(adviseNextSession(profile as any, checkins as any, phase) as AdviceItem[]);
+      setAdvice(adviseNextSession(profile as any, checkins as any, phase, plannedFromPrescription(presc) as any) as AdviceItem[]);
       return presc;
     },
     [profile, checkins, query],
@@ -104,7 +111,7 @@ export function useCheckins(profile: UserProfile) {
         setCheckins(next);
         saveCheckins(next);
         const phase = (query.phase && query.phase !== 'auto' ? query.phase : 'auto') as PhaseKey | 'auto';
-        const adv = adviseNextSession(profile as any, next as any, phase) as AdviceItem[];
+        const adv = adviseNextSession(profile as any, next as any, phase, plannedFromPrescription(prescription) as any) as AdviceItem[];
         setAdvice(adv);
         return { checkin: full, advice: adv };
       } finally {
@@ -147,7 +154,7 @@ export function useCheckins(profile: UserProfile) {
         setCheckins(next);
         saveCheckins(next);
         const phase = (query.phase && query.phase !== 'auto' ? query.phase : 'auto') as PhaseKey | 'auto';
-        const adv = adviseNextSession(profile as any, next as any, phase) as AdviceItem[];
+        const adv = adviseNextSession(profile as any, next as any, phase, plannedFromPrescription(prescription) as any) as AdviceItem[];
         setAdvice(adv);
         return { added: withId, advice: adv };
       } finally {
