@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Button, Select, InputNumber, Input, Tag, Tooltip, MessagePlugin, Popconfirm, Loading } from 'tdesign-react';
 import {
   Dumbbell, TrendingUp, TrendingDown, Minus, Check, Trash2,
@@ -287,6 +287,9 @@ export function CheckinPage({
   const [calories, setCalories] = useState<number | undefined>(undefined);
 
   const [drafts, setDrafts] = useState<Record<number, RowDraft>>({});
+  // 记录「上一次预填对应的训练日签名」，避免处方引用变化（每次 checkins 变动都会换新对象）
+  // 时把用户已手填的数据清空回计划默认值
+  const lastPrefillSig = useRef<string>('');
   const [saving, setSaving] = useState(false);
   const [trendLift, setTrendLift] = useState<string>('高杠蹲');
 
@@ -302,8 +305,13 @@ export function CheckinPage({
   }, [phase, week, day]);
 
   // 处方变化时，用处方值预填打卡草稿
+  // 关键守卫：仅在「训练日身份」真正改变时才预填，否则保留用户已输入，
+  // 杜绝 checkins 变化导致 prescription 换新引用时把草稿清空回计划默认值（吞掉手填数据）。
   useEffect(() => {
     if (!prescription) return;
+    const sig = `${prescription.phase}|W${prescription.week}|${prescription.day}`;
+    if (lastPrefillSig.current === sig) return;
+    lastPrefillSig.current = sig;
     const next: Record<number, RowDraft> = {};
     prescription.rows.forEach((r, i) => {
       next[i] = {
@@ -328,12 +336,14 @@ export function CheckinPage({
     if (!prescription) return;
     // 同一场训练的所有动作共享一个 sessionId，便于历史按场次聚合展示
     const sessionId = 's_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+    // 对草稿做快照：保存过程中即使处方/状态变化也不影响已取值，杜绝中途被覆盖
+    const draftsSnap = drafts;
     // 记录「本次处方的全部已启用动作」——只要动作被勾选（默认全勾），就必定记录；
     // 用户没手填的字段自动回退到处方计划值（组/次/重量），从根本上杜绝
     // 「某个动作因漏填字段而被静默丢弃、历史里看不到」的问题（如深蹲/硬拉失踪）。
     const toSave = prescription.rows
       .map((r, i) => {
-        const d = drafts[i];
+        const d = draftsSnap[i];
         if (d && d.enabled === false) return null; // 用户明确「跳过」的动作不记
         const sets = d?.sets != null ? d.sets! : r.sets;
         const reps = d?.reps != null ? d.reps! : r.reps;
