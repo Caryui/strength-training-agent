@@ -3,6 +3,7 @@ import { Button, Select, InputNumber, Input, Tag, Tooltip, MessagePlugin, Popcon
 import {
   Dumbbell, TrendingUp, TrendingDown, Minus, Check, Trash2,
   RefreshCw, Activity, Upload, ClipboardList, Info,
+  ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { CheckinEntry, AdviceItem, UserProfile, PhaseKey } from '../types';
 import { PrescriptionRow, DayPrescription, PhaseMeta } from '../hooks/useCheckins';
@@ -233,6 +234,33 @@ function CheckinCard({ c, onDelete }: { c: CheckinEntry; onDelete: (id: string) 
 }
 
 // ============================================================================
+// 场次聚合辅助
+// ============================================================================
+
+/** 取一条记录所属场次的唯一键：优先用 sessionId，旧数据/导入数据回退到 日期|周期|日 */
+function sessionKeyOf(c: CheckinEntry): string {
+  return c.sessionId ?? `${c.date}|${c.cycle ?? ''}|${c.day ?? ''}`;
+}
+
+/** 计算单场训练的汇总：动作数 / 总容量 / 平均 RPE / 身体指标 */
+function summarizeSession(items: CheckinEntry[]) {
+  const head = items[0] || ({} as CheckinEntry);
+  const withRpe = items.filter(c => (c.rpe ?? 0) > 0);
+  const volume = items.reduce((s, c) => s + (c.sets || 1) * c.reps * c.weight, 0);
+  return {
+    date: head.date || '',
+    cycle: head.cycle || '',
+    day: head.day || '',
+    actions: items.length,
+    volume: volume >= 1000 ? `${(volume / 1000).toFixed(1)} 吨` : `${Math.round(volume)} kg`,
+    avgRpe: withRpe.length ? (withRpe.reduce((s, c) => s + c.rpe, 0) / withRpe.length).toFixed(1) : '—',
+    bodyweight: items.map(c => c.bodyweight).find(v => v != null),
+    restingHR: items.map(c => c.restingHR).find(v => v != null),
+    calories: items.map(c => c.calories).find(v => v != null),
+  };
+}
+
+// ============================================================================
 // 主页面
 // ============================================================================
 
@@ -298,17 +326,21 @@ export function CheckinPage({
   // 保存本次训练的全部打卡
   const handleSaveAll = async () => {
     if (!prescription) return;
+    // 同一场训练的所有动作共享一个 sessionId，便于历史按场次聚合展示
+    const sessionId = 's_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+    // 记录「所有已启用且填了重量与次数的动作」——RPE 改为选填，未填也照常记录（不丢动作）
     const toSave = prescription.rows
       .map((r, i) => ({ row: r, d: drafts[i] }))
-      .filter(({ d }) => d?.enabled && d.weight != null && d.reps != null && d.rpe != null);
+      .filter(({ d }) => d?.enabled && d.weight != null && d.reps != null);
 
     if (toSave.length === 0) {
-      MessagePlugin.warning('请至少填写一个动作的「重量 / 次数 / 实际 RPE」');
+      MessagePlugin.warning('请至少填写一个动作的「重量 / 次数」');
       return;
     }
 
     setSaving(true);
     try {
+      const missingRpe = toSave.filter(({ d }) => d.rpe == null).length;
       for (const { row, d } of toSave) {
         await onAddCheckin({
           date,
@@ -320,17 +352,20 @@ export function CheckinPage({
           sets: d.sets,
           reps: d.reps!,
           weight: d.weight!,
-          rpe: d.rpe!,
+          rpe: d.rpe ?? 0,
           targetRpe: row.targetRPE,
           setDistribution: d.dist || undefined,
           techniqueNote: d.tech || undefined,
           restingHR,
           bodyweight,
           calories,
+          sessionId,
           createdAt: new Date().toISOString(),
         });
       }
-      MessagePlugin.success(`已打卡 ${toSave.length} 个动作，RPE 调节已更新`);
+      MessagePlugin.success(
+        `已打卡 ${toSave.length} 个动作${missingRpe ? `（${missingRpe} 个未填 RPE，仍已记录）` : ''}，RPE 调节已更新`,
+      );
       await refresh();
     } catch (e: any) {
       MessagePlugin.error('保存失败：' + (e?.message || e));
@@ -359,10 +394,35 @@ export function CheckinPage({
     }
   }, [liftOptions, trendLift]);
 
-  const recent = useMemo(
-    () => checkins.slice().sort((a, b) => b.date.localeCompare(a.date)),
-    [checkins]
-  );
+  // 按训练场次聚合（session）：每场训练 = 一组动作，保证「每次全部动作」成组显示
+  const sessions = useMemo(() => {
+    const map = new Map<string, CheckinEntry[]>();
+    for (const c of checkins) {
+      const key = sessionKeyOf(c);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(c);
+    }
+    const list = Array.from(map.values());
+    list.sort((a, b) => {
+      const da = a[0]?.date || '';
+      const db = b[0]?.date || '';
+      if (da !== db) return db.localeCompare(da); // 日期新的在前
+      return (b[0]?.createdAt || '').localeCompare(a[0]?.createdAt || ''); // 同日则新场次在前
+    });
+    list.forEach(s => s.sort((x, y) => (x.createdAt || '').localeCompare(y.createdAt || '')));
+    return list;
+  }, [checkins]);
+
+  // 场次折叠状态（默认全部展开）
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggleSession = (key: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const stats = useMemo(() => {
     const dates = new Set(checkins.map(c => c.date));
@@ -696,9 +756,9 @@ export function CheckinPage({
           <TrendChart data={trendData} />
         </SectionCard>
 
-        {/* 历史记录 */}
+        {/* 历史记录（按训练场次聚合，每场显示全部动作） */}
         <SectionCard
-          title={`历史打卡记录（${checkins.length} 条，本地持久化）`}
+          title={`历史打卡记录（${sessions.length} 场训练 · ${checkins.length} 条动作，本地持久化）`}
           icon={<ClipboardList size={16} />}
           extra={
             <span className="text-xs sm:hidden" style={{ color: 'var(--td-text-color-placeholder)' }}>
@@ -706,70 +766,144 @@ export function CheckinPage({
             </span>
           }
         >
-          {recent.length === 0 ? (
+          {sessions.length === 0 ? (
             <div className="py-8 text-center text-sm" style={{ color: 'var(--td-text-color-placeholder)' }}>
               还没有记录。点击右上角「导入 Excel 历史」可回填三个周期的真实数据。
             </div>
           ) : (
             <>
-              {/* 桌面：表格（横向滚动 + 纵向限高，全部记录可见） */}
+              {/* 桌面：按场次分组表格（点击场次行可折叠/展开，全部动作可见） */}
               <div className="hidden sm:block overflow-auto" style={{ maxHeight: '60vh' }}>
                 <table className="w-full text-xs" style={{ color: 'var(--td-text-color-secondary)' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--td-component-stroke)' }}>
-                      {['日期', '周期', '日', '动作', '组×次', '重量', 'RPE', '逐组分布', '技术备注', ''].map(h => (
+                      {['场次 / 动作', '组×次', '重量', 'RPE', '逐组分布', '技术备注', ''].map(h => (
                         <th key={h} className="text-left py-2 px-2 font-medium whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody>
-                    {recent.map(c => (
-                      <tr key={c.id} style={{ borderBottom: '1px solid var(--td-component-stroke)' }}>
-                        <td className="py-1.5 px-2 whitespace-nowrap">
-                          {c.date}
-                          {c.dateInferred && (
-                            <Tooltip content="表格未标注日期，依训练节奏推断">
-                              <span style={{ color: 'var(--td-warning-color)' }}> *</span>
-                            </Tooltip>
-                          )}
-                        </td>
-                        <td className="py-1.5 px-2 whitespace-nowrap">{c.cycle || '—'}</td>
-                        <td className="py-1.5 px-2 whitespace-nowrap">{c.day || '—'}</td>
-                        <td className="py-1.5 px-2 whitespace-nowrap" style={{ color: 'var(--td-text-color-primary)' }}>{c.lift}</td>
-                        <td className="py-1.5 px-2 whitespace-nowrap">{c.sets || '—'}×{c.reps}</td>
-                        <td className="py-1.5 px-2 whitespace-nowrap">{c.weight}kg</td>
-                        <td className="py-1.5 px-2 whitespace-nowrap">
-                          {c.rpe ? (
-                            <span style={{
-                              color: c.targetRpe && c.rpe - c.targetRpe >= 1
-                                ? 'var(--td-error-color)'
-                                : c.targetRpe && c.rpe - c.targetRpe <= -1
-                                  ? 'var(--td-success-color)'
-                                  : 'inherit',
-                            }}>
-                              {c.rpe}
-                            </span>
-                          ) : '—'}
-                        </td>
-                        <td className="py-1.5 px-2 max-w-[200px] truncate" title={c.setDistribution}>{c.setDistribution || '—'}</td>
-                        <td className="py-1.5 px-2 max-w-[200px] truncate" title={c.techniqueNote || c.note}>
-                          {c.techniqueNote || c.note || '—'}
-                        </td>
-                        <td className="py-1.5 px-2">
-                          <Popconfirm content="删除这条记录？" onConfirm={() => onDeleteCheckin(c.id)}>
-                            <Button variant="text" size="small" shape="circle" icon={<Trash2 size={13} />} />
-                          </Popconfirm>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
+                  {sessions.map(session => {
+                    const key = sessionKeyOf(session[0]);
+                    const sum = summarizeSession(session);
+                    const isCollapsed = collapsed.has(key);
+                    return (
+                      <tbody key={key} style={{ borderBottom: '2px solid var(--td-component-stroke)' }}>
+                        {/* 场次汇总行 */}
+                        <tr
+                          onClick={() => toggleSession(key)}
+                          className="cursor-pointer hover:bg-[var(--td-bg-color-container-hover)]"
+                          style={{ backgroundColor: 'var(--td-bg-color-container-hover)' }}
+                        >
+                          <td colSpan={7} className="py-2 px-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span
+                                className="flex-shrink-0"
+                                style={{ color: 'var(--td-brand-color)' }}
+                                onClick={(e) => { e.stopPropagation(); toggleSession(key); }}
+                              >
+                                {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                              </span>
+                              <span className="text-sm font-semibold" style={{ color: 'var(--td-text-color-primary)' }}>
+                                {sum.date}
+                              </span>
+                              {sum.cycle && <Tag size="small" variant="light">{sum.cycle}</Tag>}
+                              {sum.day && <Tag size="small" variant="light">{sum.day}</Tag>}
+                              <Tag size="small" variant="light" theme="primary">{sum.actions} 个动作</Tag>
+                              <span className="text-xs" style={{ color: 'var(--td-text-color-placeholder)' }}>
+                                总容量 {sum.volume} · 均 RPE {sum.avgRpe}
+                              </span>
+                              {sum.bodyweight != null && (
+                                <span className="text-xs" style={{ color: 'var(--td-text-color-placeholder)' }}>体重 {sum.bodyweight}kg</span>
+                              )}
+                              {sum.restingHR != null && (
+                                <span className="text-xs" style={{ color: 'var(--td-text-color-placeholder)' }}>静息 {sum.restingHR}</span>
+                              )}
+                              {sum.calories != null && (
+                                <span className="text-xs" style={{ color: 'var(--td-text-color-placeholder)' }}>{sum.calories}kcal</span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {/* 该场次全部动作 */}
+                        {!isCollapsed && session.map(c => (
+                          <tr key={c.id} style={{ borderTop: '1px solid var(--td-component-stroke)' }}>
+                            <td className="py-1.5 px-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium" style={{ color: 'var(--td-text-color-primary)' }}>{c.lift}</span>
+                                {c.dateInferred && (
+                                  <Tooltip content="表格未标注日期，依训练节奏推断">
+                                    <span style={{ color: 'var(--td-warning-color)' }}> *</span>
+                                  </Tooltip>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-1.5 px-2 whitespace-nowrap">{c.sets || '—'}×{c.reps}</td>
+                            <td className="py-1.5 px-2 whitespace-nowrap">{c.weight}kg</td>
+                            <td className="py-1.5 px-2 whitespace-nowrap">
+                              {c.rpe > 0 ? (
+                                <span style={{
+                                  color: c.targetRpe && c.rpe - c.targetRpe >= 1
+                                    ? 'var(--td-error-color)'
+                                    : c.targetRpe && c.rpe - c.targetRpe <= -1
+                                      ? 'var(--td-success-color)'
+                                      : 'inherit',
+                                }}>
+                                  {c.rpe}
+                                </span>
+                              ) : '—'}
+                            </td>
+                            <td className="py-1.5 px-2 max-w-[200px] truncate" title={c.setDistribution}>{c.setDistribution || '—'}</td>
+                            <td className="py-1.5 px-2 max-w-[200px] truncate" title={c.techniqueNote || c.note}>
+                              {c.techniqueNote || c.note || '—'}
+                            </td>
+                            <td className="py-1.5 px-2">
+                              <Popconfirm content="删除这条记录？" onConfirm={() => onDeleteCheckin(c.id)}>
+                                <Button variant="text" size="small" shape="circle" icon={<Trash2 size={13} />} />
+                              </Popconfirm>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    );
+                  })}
                 </table>
               </div>
-              {/* 移动：卡片列表（全部记录） */}
-              <div className="sm:hidden space-y-2">
-                {recent.map(c => (
-                  <CheckinCard key={c.id} c={c} onDelete={onDeleteCheckin} />
-                ))}
+
+              {/* 移动：按场次分组卡片（每场一个卡片，展开显示全部动作） */}
+              <div className="sm:hidden space-y-3">
+                {sessions.map(session => {
+                  const key = sessionKeyOf(session[0]);
+                  const sum = summarizeSession(session);
+                  const isCollapsed = collapsed.has(key);
+                  return (
+                    <div
+                      key={key}
+                      className="rounded-lg p-3"
+                      style={{ backgroundColor: 'var(--td-bg-color-container-hover)', border: '1px solid var(--td-component-stroke)' }}
+                    >
+                      <div onClick={() => toggleSession(key)} className="flex items-center justify-between gap-2 cursor-pointer">
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                          <span className="text-sm font-semibold" style={{ color: 'var(--td-text-color-primary)' }}>{sum.date}</span>
+                          {sum.cycle && <Tag size="small" variant="light">{sum.cycle}</Tag>}
+                          {sum.day && <Tag size="small" variant="light">{sum.day}</Tag>}
+                          <span className="text-xs" style={{ color: 'var(--td-text-color-placeholder)' }}>
+                            {sum.actions} 动作 · {sum.volume} · RPE {sum.avgRpe}
+                          </span>
+                        </div>
+                        <span className="flex-shrink-0" style={{ color: 'var(--td-brand-color)' }}>
+                          {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                        </span>
+                      </div>
+                      {!isCollapsed && (
+                        <div className="mt-2 space-y-2">
+                          {session.map(c => (
+                            <CheckinCard key={c.id} c={c} onDelete={onDeleteCheckin} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </>
           )}

@@ -188,6 +188,8 @@ export interface CheckinEntry {
   dateInferred?: boolean;
   /** 记录创建时间 (ISO) */
   createdAt?: string;
+  /** 同一训练场次标识：一次「保存本次训练」内的所有动作共享，便于按场次聚合展示 */
+  sessionId?: string;
 }
 
 /** 单个动作的下次训练调节建议 */
